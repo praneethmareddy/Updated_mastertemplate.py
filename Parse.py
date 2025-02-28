@@ -30,18 +30,22 @@ def parse_csv(file_path):
                 collecting_params = True
                 buffer = []  # Reset buffer for parameters
             elif collecting_params:  # Collecting Parameters
-                if row[-1].endswith(","):  # If last item ends with a comma, continue collecting
-                    buffer.extend(row)
+                if buffer and (row[0].startswith(",") or buffer[-1].endswith(",")):  
+                    buffer.extend(row)  # Append multi-line parameters
                 else:
-                    buffer.extend(row)
+                    buffer = row  # Reset buffer with new parameters
+
+                if not row[-1].endswith(","):  # If last entry doesn't end with a comma, store parameters
                     section_data["parameters"] = [p.strip() for p in ",".join(buffer).split(",")]
                     collecting_params = False
-                    buffer = []  # Reset buffer for values
+                    buffer = []  # Reset for values
             else:  # Collecting Values
-                if row[-1].endswith(","):  # If last item ends with a comma, continue collecting
-                    buffer.extend(row)
+                if buffer and (row[0].startswith(",") or buffer[-1].endswith(",")):  
+                    buffer.extend(row)  # Append multi-line values
                 else:
-                    buffer.extend(row)
+                    buffer = row  # Reset buffer with new values
+
+                if not row[-1].endswith(","):  # If last entry doesn't end with a comma, store values
                     section_data["values"] = [v.strip() for v in ",".join(buffer).split(",")]
                     buffer = []  # Reset after storing
 
