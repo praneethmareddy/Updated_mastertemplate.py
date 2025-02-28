@@ -9,8 +9,9 @@ def parse_csv(file_path):
     """Parse CSV while handling multi-line sections, parameters, and values correctly."""
     sections = []
     current_section = None
-    collecting_params = False
-    buffer = []  # Buffer to store multi-line parameters or values
+    buffer_params = []  # Buffer to store multi-line parameters
+    buffer_values = []  # Buffer to store multi-line values
+    collecting_params = False  # Flag to track if we're collecting parameters
     section_data = {"name": None, "parameters": [], "values": []}
 
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -28,26 +29,27 @@ def parse_csv(file_path):
                 current_section = row[0]  
                 section_data = {"name": current_section, "parameters": [], "values": []}
                 collecting_params = True
-                buffer = []  # Reset buffer for parameters
+                buffer_params = []  # Reset buffer for parameters
+                buffer_values = []  # Reset buffer for values
             elif collecting_params:  # Collecting Parameters
-                if buffer and (row[0].startswith(",") or buffer[-1].endswith(",")):  
-                    buffer.extend(row)  # Append multi-line parameters
+                if buffer_params and (row[0].startswith(",") or buffer_params[-1].endswith(",")):  
+                    buffer_params.extend(row)  # Append multi-line parameters
                 else:
-                    buffer = row  # Reset buffer with new parameters
+                    buffer_params = row  # Reset buffer with new parameters
 
                 if not row[-1].endswith(","):  # If last entry doesn't end with a comma, store parameters
-                    section_data["parameters"] = [p.strip() for p in ",".join(buffer).split(",")]
+                    section_data["parameters"].extend([p.strip() for p in ",".join(buffer_params).split(",")])
                     collecting_params = False
-                    buffer = []  # Reset for values
+                    buffer_params = []  # Reset for values
             else:  # Collecting Values
-                if buffer and (row[0].startswith(",") or buffer[-1].endswith(",")):  
-                    buffer.extend(row)  # Append multi-line values
+                if buffer_values and (row[0].startswith(",") or buffer_values[-1].endswith(",")):  
+                    buffer_values.extend(row)  # Append multi-line values
                 else:
-                    buffer = row  # Reset buffer with new values
+                    buffer_values = row  # Reset buffer with new values
 
                 if not row[-1].endswith(","):  # If last entry doesn't end with a comma, store values
-                    section_data["values"] = [v.strip() for v in ",".join(buffer).split(",")]
-                    buffer = []  # Reset after storing
+                    section_data["values"].extend([v.strip() for v in ",".join(buffer_values).split(",")])
+                    buffer_values = []  # Reset after storing
 
     if section_data["name"]:  
         sections.append(section_data)  # Store last section
