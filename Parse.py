@@ -1,13 +1,17 @@
+import collections
+import csv
+
 def clean_text(text):
-    """Remove unwanted characters, excessive spaces, and newlines."""
-    return " ".join(text.replace('"', '').replace("'", "").split())
+    """Remove newlines without adding spaces and preserve commas correctly."""
+    return text.replace("\r", "").replace("\n", "").replace('"', '').replace("'", "").strip()
+
 def parse_csv(file_path):
-    """Parse CSV handling multi-line sections and clean unnecessary delimiters."""
-    sections = collections.defaultdict(lambda: {"parameters": [], "values": []})
+    """Parse CSV while handling multi-line sections, parameters, and values correctly."""
+    sections = collections.defaultdict(lambda: {"parameters": set(), "values": []})
     current_section = None
-    parameter_mode = False  # Track if we are in parameter mode
-    buffer = []  # Buffer for multi-line section names
-    last_row = None  # Store the last processed row for merging
+    parameter_mode = False  
+    last_row = []  # Store the last row to handle merging
+    pending_merge = False  # Track if the last row needs merging
 
     with open(file_path, 'r', encoding='utf-8') as f:
         reader = csv.reader(f)
@@ -16,30 +20,27 @@ def parse_csv(file_path):
             row = [clean_text(cell) for cell in row if cell.strip()]  # Clean and remove empty cells
 
             if not row:
-                continue  # Skip empty rows
+                continue  
 
-            # Merge with last row if necessary
-            if last_row and (last_row[-1].endswith(",") or row[0].startswith(",")):
-                last_row[-1] = last_row[-1].rstrip(",") + row[0].lstrip(",")
-                last_row.extend(row[1:])
-                continue  # Skip further processing and wait for the next row
+            # If last row ended with a comma OR current row starts with a comma, merge them
+            if pending_merge or (last_row and last_row[-1].endswith(",")) or row[0].startswith(","):
+                if last_row:
+                    last_row[-1] = last_row[-1].rstrip(",") + row[0]  # Merge first element of new row
+                    last_row.extend(row[1:])  # Append the rest
+                pending_merge = row[-1].endswith(",")  # Check if merge is still needed
+                continue  
 
-            last_row = row  # Update last row reference
+            # Normal case: store current row as last_row
+            last_row = row  
+            pending_merge = row[-1].endswith(",")  # Check if merge is needed next iteration
 
             if row[0].startswith("@"):  # Section Name
-                if buffer:
-                    current_section = clean_text("".join(buffer))  # Join multi-line section name
-                    buffer = []
-                else:
-                    current_section = row[0]
-
-                sections[current_section]["parameters"] = []  # Reset parameters
-                sections[current_section]["values"] = []  # Reset values
-                parameter_mode = True  # Expect parameters next
-            elif parameter_mode:  # Parameter Line
-                sections[current_section]["parameters"].extend(row)
-                parameter_mode = False  # Switch to value mode
-            else:  # Values
+                current_section = row[0]
+                parameter_mode = True  
+            elif parameter_mode:  # Parameter line
+                sections[current_section]["parameters"].update(row)
+                parameter_mode = False  
+            else:  # Value line
                 sections[current_section]["values"].append(row)
 
     return sections
