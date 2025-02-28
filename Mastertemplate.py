@@ -16,54 +16,51 @@ def clean_text(text):
     return text.strip().replace('"', '').replace("'", "").replace("\t", " ")
 
 def parse_csv(file_path):
-    """Parse CSV handling multi-line sections, parameters, values, and delimiter issues."""
+    """Parse CSV handling multi-line sections, multi-line parameters, and multi-line values."""
     sections = collections.defaultdict(lambda: {"parameters": set(), "values": []})
     current_section = None
-    buffer = []
-    param_buffer = []
-    value_buffer = []
-    param_mode = False
-    value_mode = False
+    param_buffer = []  # Buffer for multi-line parameters
+    value_buffer = []  # Buffer for multi-line values
+    parameter_mode = False  # Track if we are in parameter mode
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-
+        reader = csv.reader(f, skipinitialspace=True)  # Handle spaces between values
         for row in reader:
-            row = [clean_text(cell) for cell in row if cell.strip()]
-
             if not row:
                 continue  # Skip empty rows
-            
+
+            row = [clean_text(cell) for cell in row]
+
             if row[0].startswith("@"):  # Section Name
-                if buffer:
-                    current_section = clean_text("".join(buffer))
-                    buffer = []
-                else:
-                    current_section = row[0]
-
-                param_mode = True
-                value_mode = False
-                param_buffer.clear()
-                value_buffer.clear()
-            elif param_mode:  # Parameter Line (can span multiple lines)
-                param_buffer.extend(row)
-                if not any(cell.startswith("@") for cell in row):  # Avoid accidental section misdetection
+                if current_section and param_buffer:
                     sections[current_section]["parameters"].update(param_buffer)
-                    param_mode = False
-                    value_mode = True
-                    param_buffer.clear()
-            elif value_mode:  # Value Line (can span multiple lines)
-                value_buffer.append(row)
-                if len(value_buffer) > 1 and any(len(v) != len(value_buffer[0]) for v in value_buffer):
-                    continue  # Ensure complete rows before storing values
-                
-                sections[current_section]["values"].extend(value_buffer)
-                value_buffer.clear()
+                    param_buffer = []  # Reset buffer
 
-        # Handle last buffered section name
-        if buffer:
-            current_section = clean_text("".join(buffer))
+                if current_section and value_buffer:
+                    sections[current_section]["values"].append(value_buffer)
+                    value_buffer = []  # Reset buffer
+
+                current_section = row[0]
+                parameter_mode = True  # Expecting parameters next
+
+            elif parameter_mode:  # Parameter Line
+                param_buffer.extend(row)  # Append to parameter buffer
+                if not row[-1].endswith(","):  # Check if it's the last line of parameters
+                    sections[current_section]["parameters"].update(param_buffer)
+                    param_buffer = []
+                    parameter_mode = False  # Switch to value mode
+
+            else:  # Value Lines
+                value_buffer.extend(row)  # Append to value buffer
+                if not row[-1].endswith(","):  # Check if it's the last line of values
+                    sections[current_section]["values"].append(value_buffer)
+                    value_buffer = []
+
+        # Handle any remaining buffered data at the end
+        if current_section and param_buffer:
             sections[current_section]["parameters"].update(param_buffer)
+        if current_section and value_buffer:
+            sections[current_section]["values"].append(value_buffer)
 
     return sections
 
@@ -190,6 +187,7 @@ def analyze_common_parameters(operator_param_sets):
 
     print(f"Common Parameters Across Operators: {len(global_common_params)}")
 
+    # Heatmap for parameter overlap across operators
     plt.figure(figsize=(8, 6))
     operator_list = list(operator_common_params.keys())
     param_matrix = [[len(operator_common_params[o1] & operator_common_params[o2]) for o2 in operator_list] for o1 in operator_list]
