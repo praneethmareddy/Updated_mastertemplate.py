@@ -1,0 +1,81 @@
+import csv
+import collections
+
+def clean_text(text):
+    """Normalize text by removing extra spaces, quotes, and fixing multi-line issues."""
+    return text.replace('"', '').replace("'", "").strip()
+
+def parse_csv(file_path):
+    """Parse CSV files while handling multi-line sections, parameters, and values correctly."""
+    sections = collections.defaultdict(lambda: {"parameters": set(), "values": []})
+    current_section = None
+    param_buffer = []
+    value_buffer = []
+    parameter_mode = False
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+
+    merged_lines = []
+    temp_line = ""
+
+    # Merge broken lines intelligently
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("@") and temp_line:
+            merged_lines.append(temp_line)
+            temp_line = stripped  # Start a new section
+        elif stripped.endswith(",") or ("," in stripped and "\n" in line):
+            temp_line += " " + stripped  # Merge multi-line parameters/values
+        else:
+            if temp_line:
+                merged_lines.append(temp_line)
+            temp_line = stripped
+
+    if temp_line:
+        merged_lines.append(temp_line)
+
+    for line in merged_lines:
+        line = clean_text(line)
+        row = [clean_text(cell) for cell in line.split(",") if cell.strip()]
+
+        if not row:
+            continue  # Skip empty lines
+
+        if row[0].startswith("@"):  # Section name
+            if current_section and param_buffer:
+                sections[current_section]["parameters"].update(param_buffer)
+                param_buffer = []
+
+            if current_section and value_buffer:
+                sections[current_section]["values"].append(value_buffer)
+                value_buffer = []
+
+            current_section = row[0].replace("\n", "").strip()
+            parameter_mode = True  # Expect parameters next
+
+        elif parameter_mode:  # Parameter Line
+            param_buffer.extend(row)
+            if not line.endswith(","):  # End of parameter block
+                sections[current_section]["parameters"].update(param_buffer)
+                param_buffer = []
+                parameter_mode = False  # Switch to value mode
+
+        else:  # Value Line
+            value_buffer.extend(row)
+            if not line.endswith(","):  # End of value block
+                sections[current_section]["values"].append(value_buffer)
+                value_buffer = []
+
+    # Handle leftover buffers
+    if current_section and param_buffer:
+        sections[current_section]["parameters"].update(param_buffer)
+    if current_section and value_buffer:
+        sections[current_section]["values"].append(value_buffer)
+
+    return sections
+
+# Example Usage
+file_path = "example.csv"  # Replace with your actual file path
+parsed_data = parse_csv(file_path)
+print(parsed_data)
