@@ -1,69 +1,45 @@
+def clean_text(text):
+    """Remove unwanted characters, excessive spaces, and newlines."""
+    return " ".join(text.replace('"', '').replace("'", "").split())
 def parse_csv(file_path):
-    """Parse CSV files while handling multi-line sections, parameters, and values correctly."""
-    sections = collections.defaultdict(lambda: {"parameters": set(), "values": []})
+    """Parse CSV handling multi-line sections and clean unnecessary delimiters."""
+    sections = collections.defaultdict(lambda: {"parameters": [], "values": []})
     current_section = None
-    param_buffer = []
-    value_buffer = []
-    parameter_mode = False
+    parameter_mode = False  # Track if we are in parameter mode
+    buffer = []  # Buffer for multi-line section names
+    last_row = None  # Store the last processed row for merging
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+        reader = csv.reader(f)
 
-    merged_lines = []
-    temp_line = ""
+        for row in reader:
+            row = [clean_text(cell) for cell in row if cell.strip()]  # Clean and remove empty cells
 
-    # Merge broken lines intelligently
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("@") and temp_line:
-            merged_lines.append(temp_line)
-            temp_line = stripped  # Start a new section
-        elif stripped.endswith(",") or ("," in stripped and "\n" in line):
-            temp_line += " " + stripped  # Merge multi-line parameters/values
-        else:
-            if temp_line:
-                merged_lines.append(temp_line)
-            temp_line = stripped
+            if not row:
+                continue  # Skip empty rows
 
-    if temp_line:
-        merged_lines.append(temp_line)
+            # Merge with last row if necessary
+            if last_row and (last_row[-1].endswith(",") or row[0].startswith(",")):
+                last_row[-1] = last_row[-1].rstrip(",") + row[0].lstrip(",")
+                last_row.extend(row[1:])
+                continue  # Skip further processing and wait for the next row
 
-    for line in merged_lines:
-        line = clean_text(line)
-        row = [clean_text(cell) for cell in line.split(",") if cell.strip()]
+            last_row = row  # Update last row reference
 
-        if not row:
-            continue  # Skip empty lines
+            if row[0].startswith("@"):  # Section Name
+                if buffer:
+                    current_section = clean_text("".join(buffer))  # Join multi-line section name
+                    buffer = []
+                else:
+                    current_section = row[0]
 
-        if row[0].startswith("@"):  # Section name
-            if current_section and param_buffer:
-                sections[current_section]["parameters"].update(param_buffer)
-                param_buffer = []
-
-            if current_section and value_buffer:
-                sections[current_section]["values"].append(value_buffer)
-                value_buffer = []
-
-            current_section = row[0].replace("\n", "").strip()
-            parameter_mode = True  # Expect parameters next
-
-        elif parameter_mode:  # Parameter Line
-            param_buffer.extend(row)
-            if not line.endswith(","):  # End of parameter block
-                sections[current_section]["parameters"].update(param_buffer)
-                param_buffer = []
+                sections[current_section]["parameters"] = []  # Reset parameters
+                sections[current_section]["values"] = []  # Reset values
+                parameter_mode = True  # Expect parameters next
+            elif parameter_mode:  # Parameter Line
+                sections[current_section]["parameters"].extend(row)
                 parameter_mode = False  # Switch to value mode
-
-        else:  # Value Line
-            value_buffer.extend(row)
-            if not line.endswith(","):  # End of value block
-                sections[current_section]["values"].append(value_buffer)
-                value_buffer = []
-
-    # Handle leftover buffers
-    if current_section and param_buffer:
-        sections[current_section]["parameters"].update(param_buffer)
-    if current_section and value_buffer:
-        sections[current_section]["values"].append(value_buffer)
+            else:  # Values
+                sections[current_section]["values"].append(row)
 
     return sections
