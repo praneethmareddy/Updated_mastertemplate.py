@@ -13,54 +13,75 @@ def extract_zip(zip_path, extract_to):
 
 def clean_text(text):
     """Remove unwanted characters and normalize text."""
-    return text.strip().replace('"', '').replace("'", "").replace("\t", " ")
+    return text.replace('"', '').replace("'", "").strip()
 
 def parse_csv(file_path):
-    """Parse CSV handling multi-line sections, multi-line parameters, and multi-line values."""
+    """Parse CSV files while handling multi-line sections, parameters, and values correctly."""
     sections = collections.defaultdict(lambda: {"parameters": set(), "values": []})
     current_section = None
-    param_buffer = []  # Buffer for multi-line parameters
-    value_buffer = []  # Buffer for multi-line values
-    parameter_mode = False  # Track if we are in parameter mode
+    param_buffer = []
+    value_buffer = []
+    parameter_mode = False
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        reader = csv.reader(f, skipinitialspace=True)  # Handle spaces between values
-        for row in reader:
-            if not row:
-                continue  # Skip empty rows
+        lines = f.readlines()
 
-            row = [clean_text(cell) for cell in row]
+    merged_lines = []
+    temp_line = ""
 
-            if row[0].startswith("@"):  # Section Name
-                if current_section and param_buffer:
-                    sections[current_section]["parameters"].update(param_buffer)
-                    param_buffer = []  # Reset buffer
+    # Merge broken lines intelligently
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("@") and temp_line:
+            merged_lines.append(temp_line)
+            temp_line = stripped  # Start a new section
+        elif stripped.endswith(",") or ("," in stripped and "\n" in line):
+            temp_line += " " + stripped  # Merge multi-line parameters/values
+        else:
+            if temp_line:
+                merged_lines.append(temp_line)
+            temp_line = stripped
 
-                if current_section and value_buffer:
-                    sections[current_section]["values"].append(value_buffer)
-                    value_buffer = []  # Reset buffer
+    if temp_line:
+        merged_lines.append(temp_line)
 
-                current_section = row[0]
-                parameter_mode = True  # Expecting parameters next
+    for line in merged_lines:
+        line = clean_text(line)
+        row = [clean_text(cell) for cell in line.split(",") if cell.strip()]
 
-            elif parameter_mode:  # Parameter Line
-                param_buffer.extend(row)  # Append to parameter buffer
-                if not row[-1].endswith(","):  # Check if it's the last line of parameters
-                    sections[current_section]["parameters"].update(param_buffer)
-                    param_buffer = []
-                    parameter_mode = False  # Switch to value mode
+        if not row:
+            continue  # Skip empty lines
 
-            else:  # Value Lines
-                value_buffer.extend(row)  # Append to value buffer
-                if not row[-1].endswith(","):  # Check if it's the last line of values
-                    sections[current_section]["values"].append(value_buffer)
-                    value_buffer = []
+        if row[0].startswith("@"):  # Section name
+            if current_section and param_buffer:
+                sections[current_section]["parameters"].update(param_buffer)
+                param_buffer = []
 
-        # Handle any remaining buffered data at the end
-        if current_section and param_buffer:
-            sections[current_section]["parameters"].update(param_buffer)
-        if current_section and value_buffer:
-            sections[current_section]["values"].append(value_buffer)
+            if current_section and value_buffer:
+                sections[current_section]["values"].append(value_buffer)
+                value_buffer = []
+
+            current_section = row[0].replace("\n", "").strip()
+            parameter_mode = True  # Expect parameters next
+
+        elif parameter_mode:  # Parameter Line
+            param_buffer.extend(row)
+            if not line.endswith(","):  # End of parameter block
+                sections[current_section]["parameters"].update(param_buffer)
+                param_buffer = []
+                parameter_mode = False  # Switch to value mode
+
+        else:  # Value Line
+            value_buffer.extend(row)
+            if not line.endswith(","):  # End of value block
+                sections[current_section]["values"].append(value_buffer)
+                value_buffer = []
+
+    # Handle leftover buffers
+    if current_section and param_buffer:
+        sections[current_section]["parameters"].update(param_buffer)
+    if current_section and value_buffer:
+        sections[current_section]["values"].append(value_buffer)
 
     return sections
 
@@ -162,39 +183,21 @@ def analyze_common_parameters(operator_param_sets):
             operator_common_params[operator] = common_params
             global_param_sets.append(set.union(*csv_param_sets.values()))
 
-            print(f"\nOperator: {operator}")
-            print("Total Parameters per CSV:")
-            for csv_file, param_set in csv_param_sets.items():
-                print(f"{csv_file}: {len(param_set)}")
-
-            print(f"Common Parameters in all CSVs: {len(common_params)}\n")
-
-            # Heatmap with CSV labels
-            plt.figure(figsize=(8, 6))
-            csv_files = list(csv_param_sets.keys())
-            param_matrix = [[len(csv_param_sets[f1] & csv_param_sets[f2]) for f2 in csv_files] for f1 in csv_files]
-            sns.heatmap(param_matrix, annot=True, cmap="Blues", xticklabels=csv_files, yticklabels=csv_files)
-            plt.title(f"Parameter Similarity Heatmap - {operator}")
-            plt.xlabel("CSV Files")
-            plt.ylabel("CSV Files")
-            plt.show()
-
     global_common_params = set.intersection(*global_param_sets) if global_param_sets else set()
-    print("\n### Global Common Parameters Across All Operators ###")
-    print("Total Unique Parameters Per Operator:")
-    for operator, param_set in operator_common_params.items():
-        print(f"{operator}: {len(param_set)}")
+    print(f"\nCommon Parameters Across Operators: {len(global_common_params)}")
 
-    print(f"Common Parameters Across Operators: {len(global_common_params)}")
+def analyze_section_distribution(operator_section_counts):
+    """Display section type distribution across operators."""
+    section_df = pd.DataFrame(operator_section_counts).fillna(0).astype(int)
+    print("\n### Section Type Distribution Across Operators ###")
+    print(section_df)
 
-    # Heatmap for parameter overlap across operators
-    plt.figure(figsize=(8, 6))
-    operator_list = list(operator_common_params.keys())
-    param_matrix = [[len(operator_common_params[o1] & operator_common_params[o2]) for o2 in operator_list] for o1 in operator_list]
-    sns.heatmap(param_matrix, annot=True, cmap="Greens", xticklabels=operator_list, yticklabels=operator_list)
-    plt.title("Operator-Wise Parameter Overlap Heatmap")
+    # Bar plot visualization
+    section_df.T.plot(kind='bar', stacked=True, figsize=(10, 6), colormap="viridis")
+    plt.title("Section Type Distribution Across Operators")
     plt.xlabel("Operators")
-    plt.ylabel("Operators")
+    plt.ylabel("Section Count")
+    plt.legend(title="Section Type", bbox_to_anchor=(1, 1))
     plt.show()
 
 def main():
@@ -204,6 +207,7 @@ def main():
     operator_templates, operator_counts, operator_param_sets = process_all_operators(base_directory, output_dir)
 
     analyze_common_parameters(operator_param_sets)
+    analyze_section_distribution(operator_counts)
 
     global_master_template = merge_global_master(operator_templates)
     save_global_master_template(global_master_template, output_dir)
